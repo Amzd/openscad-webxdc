@@ -173,7 +173,7 @@ function renderOutput() {
     const summary = document.createElement('div')
     summary.className = 'render-summary'
     const message = document.createElement('p')
-    message.textContent = `STL ready (${(lastRender.output.byteLength / 1024).toFixed(1)} KB).`
+    message.textContent = 'Render complete'
     const preview = document.createElement('div')
     preview.className = 'model-preview-container'
     summary.append(message, preview)
@@ -287,7 +287,7 @@ async function renderCode() {
         lastRender = { code, output, logs: relevantRuntimeOutput() }
         renderOutput()
         codeSync.publish(code, editor.selectionStart)
-        setStatus('Render complete')
+        setStatus('')
         updateEditorState()
     } catch (error) {
         const diagnostics = relevantRuntimeOutput().slice(-3).join(' ')
