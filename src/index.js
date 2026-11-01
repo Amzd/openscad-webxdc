@@ -145,16 +145,13 @@ function getViewer(key, container) {
     return viewer
 }
 
-/** @param {Blob} blob @param {string} filename */
-function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.append(link)
-    link.click()
-    link.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+/** @param {Uint8Array} bytes */
+function toBase64(bytes) {
+    let binary = ''
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+    }
+    return btoa(binary)
 }
 
 function renderOutput() {
@@ -185,7 +182,7 @@ function renderOutput() {
             const unavailable = document.createElement('p')
             unavailable.className = 'preview-error'
             unavailable.textContent =
-                '3D preview is unavailable in this environment. You can still download the STL.'
+                '3D preview is unavailable in this environment. You can still export the STL.'
             summary.append(unavailable)
         }
     }
@@ -200,7 +197,7 @@ function renderOutput() {
             const unavailable = document.createElement('p')
             unavailable.className = 'preview-error'
             unavailable.textContent =
-                'Unable to display this STL. You can still download the file.'
+                'Unable to display this STL. You can still export the file.'
             preview.replaceWith(unavailable)
         }
     }
@@ -307,12 +304,19 @@ async function renderCode() {
 }
 
 renderBtn.addEventListener('click', renderCode)
-downloadBtn.addEventListener('click', () => {
+downloadBtn.addEventListener('click', async () => {
     if (!lastRender) return
-    downloadBlob(
-        new Blob([lastRender.output], { type: 'application/octet-stream' }),
-        'model.stl'
-    )
+    try {
+        await window.webxdc.sendToChat({
+            file: {
+                name: 'model.stl',
+                base64: toBase64(new Uint8Array(lastRender.output)),
+            },
+        })
+    } catch (error) {
+        console.error('Unable to export STL', error)
+        setStatus('Export failed')
+    }
 })
 editor.addEventListener('input', () => {
     updateEditorState()
