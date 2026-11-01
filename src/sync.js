@@ -1,9 +1,9 @@
 // Shares successfully rendered code between peers over two channels:
 //  - realtime (webxdc.joinRealtimeChannel) for instant delivery to online peers
 //  - status updates (webxdc.sendUpdate) so offline peers catch up later
-// Two message types: 'compiled' (code that rendered successfully; becomes the
-// shared running code; sent over realtime and updates) and 'draft' (a peer's
-// work in progress, display only; realtime only, never stored in history).
+// 'compiled' shares successfully rendered code over realtime and updates;
+// 'draft' shares work in progress over realtime only; 'document-name' shares
+// the Webxdc document title through updates.
 // Every message has a unique id, so copies arriving over both channels (or
 // echoed back to the sender) are applied only once.
 
@@ -26,6 +26,7 @@ const decoder = new TextDecoder()
  * @typedef {{
  *     running: Snapshot | null
  *     peers: Map<string, Snapshot>
+ *     documentName: string
  * }} SyncState
  */
 
@@ -41,6 +42,7 @@ export function createCodeSync(onChange) {
         running: /** @type {Snapshot | null} */ (null),
         /** Newest snapshot per sender */
         peers: /** @type {Map<string, Snapshot>} */ (new Map()),
+        documentName: 'model.scad',
     }
 
     /** @param {Snapshot} a @param {Snapshot | null | undefined} b */
@@ -108,13 +110,20 @@ export function createCodeSync(onChange) {
     const ready = wx.setUpdateListener((update) => {
         // Drafts are realtime-only; ignore any that were stored as updates
         const payload = update.payload
-        if (
-            typeof payload === 'object' &&
-            payload !== null &&
-            'type' in payload &&
-            payload.type === 'compiled'
-        ) {
+        if (typeof payload !== 'object' || payload === null) return
+        if ('type' in payload && payload.type === 'compiled') {
             receive(payload)
+        } else if (
+            'type' in payload &&
+            payload.type === 'document-name' &&
+            'name' in payload &&
+            typeof payload.name === 'string'
+        ) {
+            const name = payload.name.trim().slice(0, 100)
+            if (name) {
+                state.documentName = name
+                onChange(state)
+            }
         }
     })
 
@@ -152,6 +161,21 @@ export function createCodeSync(onChange) {
         }
     }
 
+    /** @param {string} name */
+    function setDocumentName(name) {
+        const normalizedName = name.trim().slice(0, 100)
+        if (!normalizedName || state.documentName === normalizedName) return
+        state.documentName = normalizedName
+        wx.sendUpdate(
+            {
+                payload: { type: 'document-name', name: normalizedName },
+                document: normalizedName,
+            },
+            ''
+        )
+        onChange(state)
+    }
+
     return {
         state,
         ready,
@@ -167,7 +191,8 @@ export function createCodeSync(onChange) {
         publish(code, cursor) {
             const msg = send('compiled', code, cursor)
             sendRealtime(msg)
-            wx.sendUpdate({ payload: msg }, '')
+            wx.sendUpdate({ payload: msg, document: state.documentName }, '')
         },
+        setDocumentName,
     }
 }

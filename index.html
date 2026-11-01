@@ -404,6 +404,25 @@
                 font-weight: 700;
             }
 
+            #document-name {
+                min-width: 0;
+                width: min(240px, 40vw);
+                padding: 6px 8px;
+                border: 1px solid transparent;
+                border-radius: 6px;
+                outline: none;
+                background: transparent;
+                color: var(--foreground);
+                font: inherit;
+                font-size: 15px;
+                font-weight: 700;
+            }
+
+            #document-name:focus {
+                background: var(--btn-hover);
+                border-color: var(--panel-border);
+            }
+
             #toolbar .spacer {
                 flex: 1;
             }
@@ -478,6 +497,16 @@
         </main>
 
         <div id="toolbar">
+            <input
+                id="document-name"
+                type="text"
+                value="model.scad"
+                maxlength="100"
+                aria-label="Webxdc document name"
+                title="Edit document name"
+            />
+            <div class="spacer"></div>
+            <span id="status-text" class="status"></span>
             <button id="render-btn" class="primary" title="Render (Ctrl+Enter)">
                 Render
             </button>
@@ -488,8 +517,6 @@
             >
                 Export
             </button>
-            <div class="spacer"></div>
-            <span id="status-text" class="status"></span>
         </div>
 
         <div id="shared-notice">Code received — render to create your STL</div>

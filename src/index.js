@@ -19,6 +19,7 @@ import { createViewer } from './viewer.js'
  * @typedef {{
  *     running: SyncSnapshot | null
  *     peers: Map<string, SyncSnapshot>
+ *     documentName: string
  * }} SyncState
  */
 
@@ -68,6 +69,9 @@ const renderBtn = /** @type {HTMLButtonElement} */ (
 )
 const downloadBtn = /** @type {HTMLButtonElement} */ (
     requireElement('download-btn')
+)
+const documentNameInput = /** @type {HTMLInputElement} */ (
+    requireElement('document-name')
 )
 const statusText = requireElement('status-text')
 const runningContent = requireElement('running-content')
@@ -318,6 +322,21 @@ downloadBtn.addEventListener('click', async () => {
         setStatus('Export failed')
     }
 })
+documentNameInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+        event.preventDefault()
+        documentNameInput.blur()
+    }
+})
+documentNameInput.addEventListener('change', () => {
+    const name = documentNameInput.value.trim().slice(0, 100)
+    if (!name) {
+        documentNameInput.value = codeSync.state.documentName
+        return
+    }
+    documentNameInput.value = name
+    codeSync.setDocumentName(name)
+})
 editor.addEventListener('input', () => {
     updateEditorState()
     setStatus('Draft changed')
@@ -512,6 +531,9 @@ const codeSync = createCodeSync(onSharedChange)
 
 /** @param {SyncState} state */
 async function onSharedChange(state) {
+    if (documentNameInput !== document.activeElement) {
+        documentNameInput.value = state.documentName
+    }
     const { running } = state
     renderShared(state)
     if (!running || running.code === baseCode) return
