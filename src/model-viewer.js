@@ -77,6 +77,7 @@ export function createModelViewer() {
     return {
         dom,
         update(data) {
+            const shouldFrameModel = mesh === null
             if (mesh) disposeMesh(mesh)
 
             const buffer = new ArrayBuffer(data.byteLength)
@@ -99,10 +100,12 @@ export function createModelViewer() {
             const distance = Math.max(largestDimension * 1.8, 1)
             camera.near = Math.max(largestDimension / 1000, 0.01)
             camera.far = Math.max(largestDimension * 100, 100)
-            camera.position.set(distance, -distance, distance)
-            camera.lookAt(0, 0, 0)
-            controls.target.set(0, 0, 0)
-            controls.update()
+            if (shouldFrameModel) {
+                camera.position.set(distance, -distance, distance)
+                camera.lookAt(0, 0, 0)
+                controls.target.set(0, 0, 0)
+                controls.update()
+            }
             render()
         },
         destroy() {
