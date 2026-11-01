@@ -32,6 +32,7 @@
         "@ianvs/prettier-plugin-sort-imports": "4.5.1",
         "@resvg/resvg-js": "^2.6.2",
         "@types/node": "22.16.5",
+        "@types/three": "^0.187.0",
         "@webxdc/types": "2.1.2",
         "@webxdc/vite-plugins": "1.5.1",
         "@webxdc/webxdc-dev": "0.19.0",
@@ -56,5 +57,8 @@
         "overrides": {
             "@vitejs/plugin-basic-ssl": "2.0.0"
         }
+    },
+    "dependencies": {
+        "three": "^0.187.0"
     }
 }

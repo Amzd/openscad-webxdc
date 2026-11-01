@@ -2,8 +2,9 @@
 
 This [webxdc](https://webxdc.org/) runs [OpenSCAD](https://openscad.org/) in
 WebAssembly and syncs OpenSCAD source code between chat participants. Render
-your code to create and download an STL file. The app works offline after it
-has been opened.
+your code to preview the 3D model in-app, inspect it by dragging to rotate and
+scrolling to zoom, and download an STL file. The app works offline after it has
+been opened.
 
 The WebAssembly runtime is bundled from
 [openscad/openscad-wasm](https://github.com/openscad/openscad-wasm), release
