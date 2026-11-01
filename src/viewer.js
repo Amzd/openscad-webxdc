@@ -1,113 +1,70 @@
-import {
-    highlightMiniLocations,
-    initEditor,
-    updateMiniLocations,
-} from '@strudel/codemirror'
-
 import { changedLineIndexes } from './merge.js'
 
-function revealIn(container, el) {
-    if (!container) return
-    const c = container.getBoundingClientRect()
-    const r = el.getBoundingClientRect()
-    if (r.top < c.top) container.scrollTop -= c.top - r.top
-    else if (r.bottom > c.bottom) container.scrollTop += r.bottom - c.bottom
-}
-
 /**
- * Read-only Strudel editor (syntax highlighting, theme, line numbers) with an
- * optional remote cursor and highlighting of lines that differ from a base.
+ * @returns {{
+ *     dom: HTMLPreElement
+ *     update: (
+ *         code: string,
+ *         compareCode?: string | null,
+ *         cursor?: number | null
+ *     ) => void
+ *     destroy: () => void
+ * }}
  */
-export function createViewer(parent) {
-    const view = initEditor({
-        root: parent,
-        initialCode: '',
-        onChange: () => {},
-    })
-    view.contentDOM.contentEditable = 'false'
-    view.dom.classList.add('viewer')
-
-    const overlay = document.createElement('div')
-    overlay.className = 'viewer-overlay'
-    view.scrollDOM.append(overlay)
-
-    let current = { code: '', compareCode: null, cursor: null }
-
-    function pos(offset) {
-        const coords = view.coordsAtPos(offset)
-        if (!coords) return null
-        const rect = view.scrollDOM.getBoundingClientRect()
-        return {
-            top: coords.top - rect.top + view.scrollDOM.scrollTop,
-            bottom: coords.bottom - rect.top + view.scrollDOM.scrollTop,
-            left: coords.left - rect.left + view.scrollDOM.scrollLeft,
-        }
-    }
-
-    function drawOverlay() {
-        overlay.replaceChildren()
-        const { code, compareCode, cursor } = current
-        if (typeof compareCode === 'string') {
-            const changed = changedLineIndexes(compareCode, code)
-            for (const index of changed) {
-                if (index >= view.state.doc.lines) continue
-                const line = view.state.doc.line(index + 1)
-                const p = pos(line.from)
-                if (!p) continue
-                const mark = document.createElement('div')
-                mark.className = 'viewer-changed-line'
-                mark.style.top = `${p.top}px`
-                mark.style.height = `${p.bottom - p.top}px`
-                overlay.append(mark)
-            }
-        }
-        if (cursor !== null) {
-            const p = pos(Math.min(cursor, view.state.doc.length))
-            if (p) {
-                const marker = document.createElement('div')
-                marker.className = 'viewer-cursor'
-                marker.style.top = `${p.top}px`
-                marker.style.height = `${p.bottom - p.top}px`
-                marker.style.left = `${p.left}px`
-                overlay.append(marker)
-                // Only scroll the editor and its panel, never the window
-                revealIn(view.scrollDOM, marker)
-                revealIn(view.dom.closest('.panel-content'), marker)
-            }
-        }
-    }
+export function createViewer() {
+    const dom = document.createElement('pre')
+    dom.className = 'viewer'
 
     return {
-        dom: view.dom,
+        dom,
+        /**
+         * @param {string} code @param {string | null} [compareCode] @param
+         *   {number | null} [cursor]
+         */
         update(code, compareCode = null, cursor = null) {
-            const boundedCursor =
+            const changed =
+                typeof compareCode === 'string'
+                    ? changedLineIndexes(compareCode, code)
+                    : new Set()
+            const lines = code.split('\n')
+            const cursorLine =
                 cursor === null
-                    ? null
-                    : Math.max(0, Math.min(code.length, cursor))
-            current = { code, compareCode, cursor: boundedCursor }
-            if (view.state.doc.toString() !== code) {
-                view.dispatch({
-                    changes: {
-                        from: 0,
-                        to: view.state.doc.length,
-                        insert: code,
-                    },
-                })
-            }
-            // Positions can only be measured after layout
-            requestAnimationFrame(drawOverlay)
-        },
-        updatePatternLocations(locations) {
-            updateMiniLocations(view, locations)
-        },
-        highlight(haps, time) {
-            highlightMiniLocations(view, time, haps)
-        },
-        clearPatternHighlights() {
-            highlightMiniLocations(view, 0, [])
+                    ? -1
+                    : code.slice(0, Math.min(cursor, code.length)).split('\n')
+                          .length - 1
+            const cursorColumn =
+                cursor === null
+                    ? -1
+                    : (code
+                          .slice(0, Math.min(cursor, code.length))
+                          .split('\n')
+                          .at(-1)?.length ?? 0)
+            dom.replaceChildren()
+
+            lines.forEach((text, index) => {
+                const line = document.createElement('span')
+                line.className = changed.has(index)
+                    ? 'viewer-line changed'
+                    : 'viewer-line'
+                if (index === cursorLine) {
+                    line.append(
+                        document.createTextNode(text.slice(0, cursorColumn))
+                    )
+                    const marker = document.createElement('span')
+                    marker.className = 'viewer-cursor'
+                    marker.setAttribute('aria-hidden', 'true')
+                    line.append(
+                        marker,
+                        document.createTextNode(text.slice(cursorColumn))
+                    )
+                } else {
+                    line.textContent = text
+                }
+                dom.append(line, document.createTextNode('\n'))
+            })
         },
         destroy() {
-            view.destroy()
+            dom.remove()
         },
     }
 }

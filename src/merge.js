@@ -1,17 +1,31 @@
 // Line-based diff and three-way merge, adapted from the Code sync webxdc.
 
+/**
+ * @typedef {{ start: number; end: number; replacement: string[] }} Edit
+ */
+
+/**
+ * @param {string[]} baseLines
+ * @param {string[]} changedLines
+ *
+ * @returns {Edit[] | null}
+ */
 function lineEdits(baseLines, changedLines) {
     const rows = baseLines.length + 1
     const cols = changedLines.length + 1
     if (rows * cols > 1000000) return null
 
     const lcs = Array.from({ length: rows }, () => new Uint32Array(cols))
+    /** @param {number} i @param {number} j */
+    const at = (i, j) => lcs[i]?.[j] ?? 0
     for (let i = baseLines.length - 1; i >= 0; i--) {
         for (let j = changedLines.length - 1; j >= 0; j--) {
-            lcs[i][j] =
+            const row = lcs[i]
+            if (!row) continue
+            row[j] =
                 baseLines[i] === changedLines[j]
-                    ? lcs[i + 1][j + 1] + 1
-                    : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+                    ? at(i + 1, j + 1) + 1
+                    : Math.max(at(i + 1, j), at(i, j + 1))
         }
     }
 
@@ -40,11 +54,11 @@ function lineEdits(baseLines, changedLines) {
                 break
             if (
                 i < baseLines.length &&
-                (j === changedLines.length || lcs[i + 1][j] >= lcs[i][j + 1])
+                (j === changedLines.length || at(i + 1, j) >= at(i, j + 1))
             ) {
                 i++
             } else {
-                replacement.push(changedLines[j])
+                replacement.push(changedLines[j] ?? '')
                 j++
             }
         }
@@ -53,6 +67,10 @@ function lineEdits(baseLines, changedLines) {
     return edits
 }
 
+/**
+ * @param {string} base
+ * @param {string} changed
+ */
 export function changedLineIndexes(base, changed) {
     const baseLines = base.split('\n')
     const changedLines = changed.split('\n')
@@ -75,6 +93,12 @@ export function changedLineIndexes(base, changed) {
     return indexes
 }
 
+/**
+ * @param {string[]} left
+ * @param {string[]} right
+ *
+ * @returns {string[]}
+ */
 function mergeAdditiveLines(left, right) {
     const rows = left.length + 1
     const cols = right.length + 1
@@ -94,12 +118,16 @@ function mergeAdditiveLines(left, right) {
     }
 
     const lcs = Array.from({ length: rows }, () => new Uint32Array(cols))
+    /** @param {number} i @param {number} j */
+    const at = (i, j) => lcs[i]?.[j] ?? 0
     for (let i = left.length - 1; i >= 0; i--) {
         for (let j = right.length - 1; j >= 0; j--) {
-            lcs[i][j] =
+            const row = lcs[i]
+            if (!row) continue
+            row[j] =
                 left[i] === right[j]
-                    ? lcs[i + 1][j + 1] + 1
-                    : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+                    ? at(i + 1, j + 1) + 1
+                    : Math.max(at(i + 1, j), at(i, j + 1))
         }
     }
 
@@ -108,19 +136,26 @@ function mergeAdditiveLines(left, right) {
     let j = 0
     while (i < left.length && j < right.length) {
         if (left[i] === right[j]) {
-            result.push(left[i])
+            result.push(left[i] ?? '')
             i++
             j++
-        } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
-            result.push(left[i++])
+        } else if (at(i + 1, j) >= at(i, j + 1)) {
+            result.push(left[i++] ?? '')
         } else {
-            result.push(right[j++])
+            result.push(right[j++] ?? '')
         }
     }
     result.push(...left.slice(i), ...right.slice(j))
     return result
 }
 
+/**
+ * @param {string} base
+ * @param {string} local
+ * @param {string} incoming
+ *
+ * @returns {string}
+ */
 export function mergeEditorText(base, local, incoming) {
     if (local === base) return incoming
     if (incoming === base || local === incoming) return local
@@ -134,6 +169,7 @@ export function mergeEditorText(base, local, incoming) {
         return mergeAdditiveLines(localLines, incomingLines).join('\n')
     }
 
+    /** @param {Edit} a @param {Edit} b */
     const conflicts = (a, b) => {
         const bothInsertAtSamePoint =
             a.start === a.end && b.start === b.end && a.start === b.start
@@ -150,18 +186,29 @@ export function mergeEditorText(base, local, incoming) {
         )
     }
 
+    /** @type {{ edit: Edit; side: 'local' | 'incoming' }[]} */
     const entries = [
-        ...localEdits.map((edit) => ({ edit, side: 'local' })),
-        ...incomingEdits.map((edit) => ({ edit, side: 'incoming' })),
+        ...localEdits.map((edit) => ({
+            edit,
+            side: /** @type {'local'} */ ('local'),
+        })),
+        ...incomingEdits.map((edit) => ({
+            edit,
+            side: /** @type {'incoming'} */ ('incoming'),
+        })),
     ]
     const parents = entries.map((_, index) => index)
+    /** @param {number} index */
     const find = (index) => {
-        while (parents[index] !== index) {
-            parents[index] = parents[parents[index]]
-            index = parents[index]
+        while (parents[index] !== undefined && parents[index] !== index) {
+            const parent = parents[index]
+            if (parent === undefined) break
+            parents[index] = parents[parent] ?? parent
+            index = parents[index] ?? parent
         }
         return index
     }
+    /** @param {number} a @param {number} b */
     const unite = (a, b) => {
         const rootA = find(a)
         const rootB = find(b)
@@ -170,18 +217,22 @@ export function mergeEditorText(base, local, incoming) {
 
     for (let i = 0; i < localEdits.length; i++) {
         for (let j = 0; j < incomingEdits.length; j++) {
-            if (conflicts(localEdits[i], incomingEdits[j]))
+            const localEdit = localEdits[i]
+            const incomingEdit = incomingEdits[j]
+            if (localEdit && incomingEdit && conflicts(localEdit, incomingEdit))
                 unite(i, localEdits.length + j)
         }
     }
 
+    /** @type {Map<number, { edit: Edit; side: 'local' | 'incoming' }[]>} */
     const groups = new Map()
     entries.forEach((entry, index) => {
         const root = find(index)
         if (!groups.has(root)) groups.set(root, [])
-        groups.get(root).push(entry)
+        groups.get(root)?.push(entry)
     })
 
+    /** @param {Edit[]} edits @param {number} start @param {number} end */
     const applyGroup = (edits, start, end) => {
         const result = []
         let cursor = start
@@ -198,6 +249,7 @@ export function mergeEditorText(base, local, incoming) {
         return result
     }
 
+    /** @type {Edit[]} */
     const edits = []
     for (const group of groups.values()) {
         const localGroup = group

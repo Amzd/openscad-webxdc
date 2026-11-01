@@ -1,306 +1,131 @@
-import {
-    StrudelMirror,
-    codemirrorSettings,
-    defaultSettings,
-} from '@strudel/codemirror'
-import { silence } from '@strudel/core'
-import { getDrawContext } from '@strudel/draw'
-import { transpiler } from '@strudel/transpiler'
-import {
-    getAudioContext,
-    initAudioOnFirstClick,
-    webaudioOutput,
-} from '@strudel/webaudio'
-
 import { mergeEditorText } from './merge.js'
-import { prebake } from './prebake.js'
 import { createCodeSync } from './sync.js'
 import { createViewer } from './viewer.js'
 
-defaultSettings.isAutoCompletionEnabled = true
-defaultSettings.isLineWrappingEnabled = true
-defaultSettings.isBracketMatchingEnabled = true
+/**
+ * @typedef {{
+ *     id: string
+ *     type: 'draft' | 'compiled'
+ *     code: string
+ *     cursor: number | null
+ *     ts: number
+ *     from: string
+ *     name: string
+ * }} SyncSnapshot
+ */
 
-// Redirect soundfont data requests to locally bundled files (public/sounds/).
-// The @strudel/repl pre-built chunk has its own copy of fontloader.mjs with a
-// separate soundfontUrl variable, so patching globalThis.fetch is the only
-// reliable way to redirect those fetches regardless of module instance.
-const nativeFetch = globalThis.fetch.bind(globalThis)
-const SOUNDFONT_BASE = 'https://felixroos.github.io/webaudiofontdata/sound/'
-globalThis.fetch = function (url, init) {
-    if (typeof url === 'string' && url.startsWith(SOUNDFONT_BASE)) {
-        url = '/sounds/' + url.slice(SOUNDFONT_BASE.length)
-    }
-    return nativeFetch(url, init)
+/**
+ * @typedef {{
+ *     running: SyncSnapshot | null
+ *     peers: Map<string, SyncSnapshot>
+ * }} SyncState
+ */
+
+/**
+ * @typedef {{ code: string; output: Uint8Array; logs: string[] }} RenderedModel
+ */
+
+/**
+ * @typedef {{
+ *     FS: {
+ *         writeFile: (path: string, data: string | Uint8Array) => void
+ *         unlink: (path: string) => void
+ *         readFile: (path: string) => string | Uint8Array
+ *     }
+ *     callMain: (args: string[]) => number
+ * }} WasmInstance
+ */
+
+const DEFAULT_CODE = `// A simple 20 mm cube
+$fn = 48;
+cube([20, 20, 20], center = true);
+`
+
+/** @param {string} id */
+function requireElement(id) {
+    const element = document.getElementById(id)
+    if (!element) throw new Error(`Missing required element: #${id}`)
+    return element
 }
 
-const DEFAULT_CODE = `setcps(1)
-n("<0 1 2 3 4>*8").scale('G4 minor')
-.s("gm_lead_6_voice")
-.clip(sine.range(.2,.8).slow(8))
-.jux(rev)
-.room(2)
-.sometimes(add(note("12")))
-.lpf(perlin.range(200,20000).slow(4))`
+/** @param {string} text */
+function captureOutput(text) {
+    runtimeOutput.push(text)
+}
 
-initAudioOnFirstClick()
+function relevantRuntimeOutput() {
+    // This headless build has no locale bundle; its startup warning is non-actionable.
+    return runtimeOutput.filter(
+        (line) => line && line !== 'Could not initialize localization.'
+    )
+}
 
-const drawContext = getDrawContext()
-const drawTime = [-2, 2]
+const editor = /** @type {HTMLTextAreaElement} */ (requireElement('editor'))
+const editorState = requireElement('editor-state')
+const renderBtn = /** @type {HTMLButtonElement} */ (
+    requireElement('render-btn')
+)
+const downloadBtn = /** @type {HTMLButtonElement} */ (
+    requireElement('download-btn')
+)
+const statusText = requireElement('status-text')
+const runningContent = requireElement('running-content')
+const runningMeta = requireElement('running-meta')
+const peersContent = requireElement('peers-content')
+const tabsBar = requireElement('mobile-shared-tabs')
+const sharedViews = requireElement('shared-views')
+const sharedNotice = requireElement('shared-notice')
+const workspace = requireElement('workspace')
+const runningPanel = requireElement('running-panel')
+const peersPanel = requireElement('peers-panel')
+
+editor.value = DEFAULT_CODE
+
+/** @type {SyncSnapshot | null} */
+let latestRunning = null
+/** @type {string} */
+let baseCode = DEFAULT_CODE
+/** @type {RenderedModel | null} */
+let lastRender = null
+/** @type {Promise<WasmInstance> | undefined} */
+let wasmInstancePromise
+/** @type {string[]} */
+let runtimeOutput = []
+let hasOutputFile = false
+/** @type {string[]} */
+let orderedPeerIds = []
 /** @type {string | null} */
-let evaluatedCode = null
-/** @type {[number, number][]} */
-let evaluatedMiniLocations = []
-/** @type {{ isActive: (time: number) => boolean }[]} */
-let visibleHaps = []
-let highlightTime = 0
-
-const mirror = new StrudelMirror({
-    defaultOutput: webaudioOutput,
-    getTime: () => getAudioContext().currentTime,
-    transpiler,
-    root: document.getElementById('editor-root'),
-    initialCode: DEFAULT_CODE,
-    pattern: silence,
-    drawTime,
-    drawContext,
-    prebake,
-    solo: true,
-    sync: false,
-    // Only code that evaluated successfully is shared with peers
-    /**
-     * @param {{
-     *     code: string
-     *     meta?: { miniLocations?: [number, number][] }
-     * }} options
-     */
-    afterEval: ({ code, meta }) => {
-        evaluatedCode = code
-        evaluatedMiniLocations = meta?.miniLocations ?? []
-        if (!applyingRemote) codeSync.publish(code, cursorPos())
-        if (latestRunning?.code === code) {
-            const viewer = getViewer('running', runningContent)
-            viewer.updatePatternLocations(evaluatedMiniLocations)
-        }
-    },
-    /**
-     * @param {{ isActive: (time: number) => boolean }[]} haps
-     * @param {number} time
-     * @param {((...args: unknown[]) => void)[]} painters
-     */
-    onDraw: (haps, time, painters) => {
-        painters?.forEach((painter) =>
-            painter(drawContext, time, haps, drawTime)
-        )
-        visibleHaps = haps.filter((hap) => hap.isActive(time))
-        highlightTime = time
-        if (latestRunning?.code === evaluatedCode) {
-            getViewer('running', runningContent).highlight(visibleHaps, time)
-        }
-    },
-    /** @param {boolean} started */
-    onToggle: (started) => {
-        if (started) return
-        visibleHaps = []
-        highlightTime = 0
-        viewers.get('running')?.clearPatternHighlights()
-    },
-    onUpdateState: ({ started, error, isDirty }) => {
-        updateToolbarState(started, error, isDirty)
-        renderEditorState()
-    },
-})
-
-// Restore saved settings
-const savedSettings = codemirrorSettings.get()
-mirror.updateSettings(savedSettings)
-syncSettingsPanel(savedSettings)
-
-// ── Toolbar wiring ───────────────────────────────────────────────────────────
-
-const playBtn = document.getElementById('play-btn')
-const updateBtn = document.getElementById('update-btn')
-const settingsBtn = document.getElementById('settings-btn')
-const settingsPanel = document.getElementById('settings-panel')
-const statusText = document.getElementById('status-text')
-const sharedNotice = document.getElementById('shared-notice')
-
-playBtn.addEventListener('click', () => mirror.toggle())
-updateBtn.addEventListener('click', () => mirror.evaluate())
-
-settingsBtn.addEventListener('click', () => {
-    settingsPanel.classList.toggle('open')
-})
-
-// Close settings panel when clicking outside
-document.addEventListener('click', (e) => {
-    if (!settingsPanel.contains(e.target) && !settingsBtn.contains(e.target)) {
-        settingsPanel.classList.remove('open')
-    }
-})
-
-function updateToolbarState(started, error, isDirty) {
-    const playIcon = document.getElementById('play-icon')
-    const stopIcon = document.getElementById('stop-icon')
-
-    if (started) {
-        playBtn.classList.add('playing')
-        playIcon.style.display = 'none'
-        stopIcon.style.display = ''
-    } else {
-        playBtn.classList.remove('playing')
-        playIcon.style.display = ''
-        stopIcon.style.display = 'none'
-    }
-
-    updateBtn.disabled = !(started && isDirty)
-
-    if (error) {
-        statusText.textContent = String(error).replace(/^Error:\s*/i, '')
-        statusText.classList.add('error')
-    } else {
-        statusText.textContent = ''
-        statusText.classList.remove('error')
-    }
-}
-
-// ── Settings panel wiring ────────────────────────────────────────────────────
-
-function syncSettingsPanel(settings) {
-    document.getElementById('font-size-input').value = settings.fontSize ?? 18
-    document.getElementById('font-size-label').textContent =
-        settings.fontSize ?? 18
-    document.getElementById('font-family-input').value =
-        settings.fontFamily ?? 'monospace'
-    document.getElementById('line-numbers-input').checked =
-        settings.isLineNumbersDisplayed !== false
-    document.getElementById('line-wrap-input').checked =
-        settings.isLineWrappingEnabled === true
-    document.getElementById('autocomplete-input').checked =
-        settings.isAutoCompletionEnabled === true
-    document.getElementById('bracket-matching-input').checked =
-        settings.isBracketMatchingEnabled === true
-    document.getElementById('flash-input').checked =
-        settings.isFlashEnabled !== false
-    document.getElementById('pattern-highlight-input').checked =
-        settings.isPatternHighlightingEnabled !== false
-    document.getElementById('tooltip-enabled-input').checked =
-        settings.isTooltipEnabled === true
-}
-
-function applySetting(key, value) {
-    mirror.changeSetting(key, value)
-    const updated = { ...codemirrorSettings.get(), [key]: value }
-    codemirrorSettings.set(updated)
-    if (key === 'isPatternHighlightingEnabled') {
-        const viewer = viewers.get('running')
-        viewer?.destroy()
-        viewers.delete('running')
-        if (latestRunning) {
-            const runningViewer = getViewer('running', runningContent)
-            runningViewer.update(latestRunning.code)
-            if (latestRunning.code === evaluatedCode) {
-                runningViewer.updatePatternLocations(evaluatedMiniLocations)
-                runningViewer.highlight(visibleHaps, highlightTime)
-            }
-        }
-    }
-}
-
-document.getElementById('font-size-input').addEventListener('input', (e) => {
-    const size = Number(e.target.value)
-    document.getElementById('font-size-label').textContent = size
-    applySetting('fontSize', size)
-})
-
-document.getElementById('font-family-input').addEventListener('change', (e) => {
-    applySetting('fontFamily', e.target.value)
-})
-
-document
-    .getElementById('line-numbers-input')
-    .addEventListener('change', (e) => {
-        applySetting('isLineNumbersDisplayed', e.target.checked)
-    })
-
-document.getElementById('line-wrap-input').addEventListener('change', (e) => {
-    applySetting('isLineWrappingEnabled', e.target.checked)
-})
-
-document
-    .getElementById('autocomplete-input')
-    .addEventListener('change', (e) => {
-        applySetting('isAutoCompletionEnabled', e.target.checked)
-    })
-
-document
-    .getElementById('bracket-matching-input')
-    .addEventListener('change', (e) => {
-        applySetting('isBracketMatchingEnabled', e.target.checked)
-    })
-
-document.getElementById('flash-input').addEventListener('change', (e) => {
-    applySetting('isFlashEnabled', e.target.checked)
-})
-
-document
-    .getElementById('pattern-highlight-input')
-    .addEventListener('change', (e) => {
-        applySetting('isPatternHighlightingEnabled', e.target.checked)
-    })
-
-document
-    .getElementById('tooltip-enabled-input')
-    .addEventListener('change', (e) => {
-        applySetting('isTooltipEnabled', e.target.checked)
-    })
-
-// ── Shared views (editor / running / peers) ──────────────────────────────────
-
-const editorState = document.getElementById('editor-state')
-const runningContent = document.getElementById('running-content')
-const runningMeta = document.getElementById('running-meta')
-const peersContent = document.getElementById('peers-content')
-const tabsBar = document.querySelector('.mobile-shared-tabs')
-const sharedViews = document.querySelector('.shared-views')
-
-tabsBar.addEventListener('click', (event) => {
-    const tab = event.target.closest('.tab')
-    if (!tab) return
-    for (const t of tabsBar.querySelectorAll('.tab')) {
-        t.classList.toggle('active', t === tab)
-        t.setAttribute('aria-selected', t === tab ? 'true' : 'false')
-    }
-    const isRunning = tab.dataset.panel === 'running'
-    document
-        .getElementById('running-panel')
-        .classList.toggle('mobile-active', isRunning)
-    document
-        .getElementById('peers-panel')
-        .classList.toggle('mobile-active', !isRunning)
-    if (!isRunning && tab.dataset.peer) {
-        selectedPeerFrom = tab.dataset.peer
-        const entry = peerCards.get(tab.dataset.peer)
-        if (entry) peersContent.replaceChildren(entry.card)
-    }
-})
-
-function shortAddress(addr) {
-    return addr.length > 12 ? `${addr.slice(0, 7)}…${addr.slice(-3)}` : addr
-}
-
+let selectedPeerFrom = null
+/**
+ * @type {Map<
+ *     string,
+ *     { card: HTMLElement; name: HTMLElement; body: HTMLElement }
+ * >}
+ */
+const peerCards = new Map()
+/** @type {Map<string, ReturnType<typeof createViewer>>} */
 const viewers = new Map()
 
-function getViewer(key, container) {
-    let viewer = viewers.get(key)
-    if (!viewer || !container.contains(viewer.dom)) {
-        container.replaceChildren()
-        viewer = createViewer(container)
-        viewers.set(key, viewer)
+function updateEditorState() {
+    if (!latestRunning) {
+        editorState.textContent = 'Not rendered yet'
+        editorState.classList.remove('draft')
+        return
     }
-    return viewer
+    const differs = editor.value !== latestRunning.code
+    editorState.textContent = differs
+        ? 'Draft differs'
+        : 'Matches latest render'
+    editorState.classList.toggle('draft', differs)
 }
 
+/** @param {string} message @param {boolean} [isError] */
+function setStatus(message, isError = false) {
+    statusText.textContent = message
+    statusText.classList.toggle('error', isError)
+}
+
+/** @param {string} text */
 function emptyState(text) {
     const div = document.createElement('div')
     div.className = 'empty-state'
@@ -308,24 +133,155 @@ function emptyState(text) {
     return div
 }
 
-let latestRunning = null
-
-function renderEditorState() {
-    const running = latestRunning
-    if (!running) {
-        editorState.textContent = 'Not run yet'
-        editorState.classList.remove('draft')
-        return
+/** @param {string} key @param {HTMLElement} container */
+function getViewer(key, container) {
+    let viewer = viewers.get(key)
+    if (!viewer || !container.contains(viewer.dom)) {
+        container.replaceChildren()
+        viewer = createViewer()
+        container.append(viewer.dom)
+        viewers.set(key, viewer)
     }
-    const differs = mirror.code !== running.code
-    editorState.textContent = differs ? 'Draft differs' : 'Matches running'
-    editorState.classList.toggle('draft', differs)
+    return viewer
 }
 
-const peerCards = new Map()
-let orderedPeerIds = []
-let selectedPeerFrom = null
+/** @param {Blob} blob @param {string} filename */
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.append(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
+function renderOutput() {
+    if (!lastRender) {
+        downloadBtn.disabled = true
+        runningContent.replaceChildren(
+            emptyState('Render your OpenSCAD code to create an STL model.')
+        )
+        return
+    }
+
+    downloadBtn.disabled = false
+    const summary = document.createElement('div')
+    summary.className = 'render-summary'
+    const message = document.createElement('p')
+    message.textContent = `STL ready (${(lastRender.output.byteLength / 1024).toFixed(1)} KB).`
+    const source = document.createElement('pre')
+    source.className = 'render-source'
+    source.textContent = lastRender.code
+    summary.append(message, source)
+    if (lastRender.logs.length) {
+        const logs = document.createElement('pre')
+        logs.className = 'render-logs'
+        logs.textContent = lastRender.logs.join('\n')
+        summary.append(logs)
+    }
+    runningContent.replaceChildren(summary)
+}
+
+async function getWasmInstance() {
+    if (!wasmInstancePromise) {
+        const runtimeUrl = new URL('openscad/openscad.js', document.baseURI)
+            .href
+        wasmInstancePromise = import(/* @vite-ignore */ runtimeUrl)
+            .then(({ default: OpenSCAD }) =>
+                OpenSCAD({
+                    noInitialRun: true,
+                    print: captureOutput,
+                    printErr: captureOutput,
+                })
+            )
+            .catch((error) => {
+                wasmInstancePromise = undefined
+                throw error
+            })
+    }
+    return wasmInstancePromise
+}
+
+async function renderCode() {
+    if (renderBtn.disabled) return
+    renderBtn.disabled = true
+    setStatus('Loading OpenSCAD…')
+    runtimeOutput = []
+
+    try {
+        const instance = await getWasmInstance()
+        const code = editor.value
+        instance.FS.writeFile('/input.scad', code)
+        if (hasOutputFile) {
+            instance.FS.unlink('/model.stl')
+            hasOutputFile = false
+        }
+
+        setStatus('Rendering STL…')
+        const exitCode = instance.callMain(['/input.scad', '-o', '/model.stl'])
+        if (exitCode !== 0) {
+            throw new Error(`OpenSCAD exited with code ${exitCode}`)
+        }
+
+        const output = instance.FS.readFile('/model.stl')
+        if (!(output instanceof Uint8Array) || output.byteLength === 0) {
+            throw new Error('OpenSCAD did not produce an STL file')
+        }
+        hasOutputFile = true
+        lastRender = { code, output, logs: relevantRuntimeOutput() }
+        renderOutput()
+        codeSync.publish(code, editor.selectionStart)
+        setStatus('Render complete')
+        updateEditorState()
+    } catch (error) {
+        const diagnostics = relevantRuntimeOutput().slice(-3).join(' ')
+        setStatus(
+            (
+                diagnostics ||
+                (error instanceof Error ? error.message : String(error))
+            )
+                .replace(/^Error:\s*/i, '')
+                .slice(0, 240),
+            true
+        )
+        console.error('OpenSCAD render failed', error)
+    } finally {
+        renderBtn.disabled = false
+    }
+}
+
+renderBtn.addEventListener('click', renderCode)
+downloadBtn.addEventListener('click', () => {
+    if (!lastRender) return
+    downloadBlob(
+        new Blob([lastRender.output], { type: 'application/octet-stream' }),
+        'model.stl'
+    )
+})
+editor.addEventListener('input', () => {
+    updateEditorState()
+    setStatus('Draft changed')
+})
+
+document.addEventListener('keydown', (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return
+    if (event.key === 'Enter') {
+        event.preventDefault()
+        renderCode()
+    } else if (event.key.toLowerCase() === 's' && !event.shiftKey) {
+        event.preventDefault()
+        renderCode()
+    }
+})
+
+/** @param {string} addr */
+function shortAddress(addr) {
+    return addr.length > 12 ? `${addr.slice(0, 7)}…${addr.slice(-3)}` : addr
+}
+
+/** @param {number} peerCount */
 function updatePeerLayout(peerCount) {
     const wideLayout = window.matchMedia(
         '(min-width: 560px) and (min-aspect-ratio: 6/5)'
@@ -338,21 +294,21 @@ function updatePeerLayout(peerCount) {
         wideLayout && peerCount > 0 && peerCount <= availableColumns
     peersContent.classList.toggle('peer-grid', showGrid)
     peersContent.classList.toggle('peer-tabs-mode', !showGrid)
-    document
-        .getElementById('workspace')
-        .classList.toggle('peer-tabs-mode', !showGrid && peerCount > 0)
+    workspace.classList.toggle('peer-tabs-mode', !showGrid && peerCount > 0)
     sharedViews.classList.toggle('peer-tabs-mode', !showGrid && peerCount > 0)
     tabsBar.hidden = showGrid && peerCount > 0
     if (peerCount) {
         const cards = orderedPeerIds
             .map((id) => peerCards.get(id)?.card)
-            .filter(Boolean)
+            .filter((card) => card !== undefined)
+        const selectedCard =
+            peerCards.get(selectedPeerFrom ?? '')?.card ??
+            peerCards.get(orderedPeerIds[0] ?? '')?.card
         const visibleCards = showGrid
             ? cards
-            : [
-                  peerCards.get(selectedPeerFrom)?.card ??
-                      peerCards.get(orderedPeerIds[0])?.card,
-              ].filter(Boolean)
+            : selectedCard
+              ? [selectedCard]
+              : []
         if (
             visibleCards.length !== peersContent.children.length ||
             visibleCards.some(
@@ -367,58 +323,84 @@ function updatePeerLayout(peerCount) {
 new ResizeObserver(() => updatePeerLayout(peerCards.size)).observe(peersContent)
 window.addEventListener('resize', () => updatePeerLayout(peerCards.size))
 
+tabsBar.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return
+    const tab = event.target.closest('.tab')
+    if (!(tab instanceof HTMLButtonElement)) return
+    for (const item of tabsBar.querySelectorAll('.tab')) {
+        item.classList.toggle('active', item === tab)
+        item.setAttribute('aria-selected', item === tab ? 'true' : 'false')
+    }
+    const isRunning = tab.dataset.panel === 'running'
+    runningPanel.classList.toggle('mobile-active', isRunning)
+    peersPanel.classList.toggle('mobile-active', !isRunning)
+    if (!isRunning && tab.dataset.peer) {
+        selectedPeerFrom = tab.dataset.peer
+        const entry = peerCards.get(tab.dataset.peer)
+        if (entry) peersContent.replaceChildren(entry.card)
+    }
+})
+
+/** @type {ReturnType<typeof setTimeout> | undefined} */
+let noticeTimeout
+function showSharedNotice() {
+    sharedNotice.classList.add('show')
+    clearTimeout(noticeTimeout)
+    noticeTimeout = setTimeout(
+        () => sharedNotice.classList.remove('show'),
+        3000
+    )
+}
+
+/** @param {SyncState} state */
 function renderShared({ running, peers }) {
     latestRunning = running
-    const self = window.webxdc.selfAddr
-
     if (running) {
-        runningMeta.textContent =
-            running.from === self
-                ? 'by you'
-                : `by ${running.name || shortAddress(running.from)}`
-        const viewer = getViewer('running', runningContent)
-        viewer.update(running.code)
-        if (running.code !== evaluatedCode) {
-            viewer.clearPatternHighlights()
-        }
+        runningMeta.textContent = lastRender
+            ? 'by you'
+            : running.from === window.webxdc.selfAddr
+              ? 'by you'
+              : `by ${running.name || shortAddress(running.from)}`
+        renderOutput()
     } else {
         runningMeta.textContent = ''
-        viewers.delete('running')
         runningContent.replaceChildren(
-            emptyState('Code that plays successfully is shared here.')
+            emptyState('Render your OpenSCAD code to create an STL model.')
         )
     }
 
-    const others = [...peers.values()].filter((p) => p.from !== self)
+    const others = [...peers.values()].filter(
+        (peer) => peer.from !== window.webxdc.selfAddr
+    )
     orderedPeerIds = others.map((peer) => peer.from)
+    workspace.classList.toggle('has-peers', others.length > 0)
     selectedPeerFrom =
         [...others].sort((a, b) => b.ts - a.ts || b.id.localeCompare(a.id))[0]
             ?.from ?? null
-    document
-        .getElementById('workspace')
-        .classList.toggle('solo', others.length === 0)
     tabsBar.replaceChildren()
+
+    const runningTab = document.createElement('button')
+    runningTab.className = 'tab active'
+    runningTab.type = 'button'
+    runningTab.setAttribute('role', 'tab')
+    runningTab.dataset.panel = 'running'
+    runningTab.textContent = 'Output'
+    runningTab.setAttribute('aria-selected', 'true')
+    tabsBar.append(runningTab)
+
     if (!others.length) {
         peerCards.clear()
-        viewers.forEach(
-            (_, key) => key.startsWith('peer:') && viewers.delete(key)
-        )
+        viewers.forEach((viewer, key) => {
+            if (key.startsWith('peer:')) {
+                viewer.destroy()
+                viewers.delete(key)
+            }
+        })
         peersContent.replaceChildren(
-            emptyState("Peers' drafts will appear here as they type.")
+            emptyState("Other participants' drafts will appear here.")
         )
-        const emptyTab = document.createElement('button')
-        emptyTab.className = 'tab active'
-        emptyTab.type = 'button'
-        emptyTab.setAttribute('role', 'tab')
-        emptyTab.dataset.panel = 'peers'
-        emptyTab.textContent = 'Peers'
-        emptyTab.setAttribute('aria-selected', 'true')
-        document
-            .getElementById('running-panel')
-            .classList.remove('mobile-active')
-        document.getElementById('peers-panel').classList.add('mobile-active')
-        tabsBar.append(emptyTab)
     }
+
     for (const peer of others) {
         let entry = peerCards.get(peer.from)
         if (!entry) {
@@ -453,159 +435,60 @@ function renderShared({ running, peers }) {
             peer.cursor
         )
     }
+
     if (others.length) {
-        document
-            .getElementById('running-panel')
-            .classList.remove('mobile-active')
-        document.getElementById('peers-panel').classList.add('mobile-active')
+        runningPanel.classList.add('mobile-active')
+        peersPanel.classList.remove('mobile-active')
         updatePeerLayout(others.length)
     } else {
         orderedPeerIds = []
         selectedPeerFrom = null
         updatePeerLayout(0)
     }
-    renderEditorState()
+    updateEditorState()
 }
 
-// ── WebXDC integration ───────────────────────────────────────────────────────
+const codeSync = createCodeSync(onSharedChange)
 
-let noticeTimeout
-function showSharedNotice() {
-    sharedNotice.classList.add('show')
-    clearTimeout(noticeTimeout)
-    noticeTimeout = setTimeout(
-        () => sharedNotice.classList.remove('show'),
-        3000
-    )
-}
-
-// Code last known to be running. Local edits are merged against it so they
-// are never overwritten by an incoming snapshot.
-let baseCode = DEFAULT_CODE
-let applyingRemote = false
-
-// Local undo history: the last few local changes, then the running code.
-// Remote and undo-driven changes are not recorded.
-const UNDO_STEPS = 3
-const UNDO_GROUP_MS = 750
-let undoHistory = []
-let lastChangeAt = 0
-let silent = false
-let trackedCode = mirror.code
-Object.defineProperty(mirror, 'code', {
-    get: () => trackedCode,
-    set(value) {
-        if (!silent && value !== trackedCode) {
-            const now = Date.now()
-            if (now - lastChangeAt > UNDO_GROUP_MS) {
-                undoHistory.push(trackedCode)
-                if (undoHistory.length > UNDO_STEPS) undoHistory.shift()
-            }
-            lastChangeAt = now
-        }
-        trackedCode = value
-    },
-})
-
-function setCodeSilently(code) {
-    silent = true
-    try {
-        mirror.setCode(code)
-    } finally {
-        silent = false
-    }
-    undoHistory = []
-}
-
-function undoLocal() {
-    const target = undoHistory.pop() ?? latestRunning?.code
-    if (target === undefined || target === mirror.code) return
-    silent = true
-    try {
-        mirror.setCode(target)
-    } finally {
-        silent = false
-    }
-    lastChangeAt = 0
-}
-
-document.addEventListener(
-    'keydown',
-    (e) => {
-        if (!(e.metaKey || e.ctrlKey) || e.altKey) return
-        const key = e.key.toLowerCase()
-        if (key === 's' && !e.shiftKey) {
-            e.preventDefault()
-            e.stopPropagation()
-            if (!updateBtn.disabled || !mirror.repl.scheduler.started) {
-                mirror.evaluate()
-            }
-        } else if (
-            key === 'z' &&
-            !e.shiftKey &&
-            e.target instanceof Element &&
-            e.target.closest('#editor-root')
-        ) {
-            e.preventDefault()
-            e.stopPropagation()
-            undoLocal()
-        }
-    },
-    true
-)
-
+/** @param {SyncState} state */
 async function onSharedChange(state) {
     const { running } = state
     renderShared(state)
     if (!running || running.code === baseCode) return
     const previous = baseCode
     baseCode = running.code
-    const local = mirror.code
+    const local = editor.value
     const merged = mergeEditorText(previous, local, running.code)
-    if (merged !== local) setCodeSilently(merged)
-    // Follow along live only when the editor has no local changes of its own
-    const isOwn = running.from === window.webxdc.selfAddr
-    if (!isOwn && merged === running.code && mirror.repl.scheduler.started) {
-        applyingRemote = true
-        try {
-            await mirror.evaluate()
-        } finally {
-            applyingRemote = false
-        }
-    } else if (merged !== local) {
-        showSharedNotice()
-    }
-    renderEditorState()
+    if (merged !== local) editor.value = merged
+    if (merged !== local) showSharedNotice()
+    updateEditorState()
 }
-
-const codeSync = createCodeSync(onSharedChange)
-renderShared(codeSync.state)
 
 function cursorPos() {
-    return mirror.editor.state.selection.main.head
+    return editor.selectionStart
 }
 
-// Share the in-progress draft and cursor (display only; never evaluated)
+/** @type {{ code: string; cursor: number } | null} */
 let sentDraft = null
 function shareDraft() {
-    const draft = { code: mirror.code, cursor: cursorPos() }
-    if (sentDraft?.code === draft.code && sentDraft.cursor === draft.cursor) {
+    const draft = { code: editor.value, cursor: cursorPos() }
+    if (sentDraft?.code === draft.code && sentDraft.cursor === draft.cursor)
         return
-    }
     sentDraft = draft
     codeSync.publishDraft(draft.code, draft.cursor)
-    renderEditorState()
 }
 
-// Start from the synced running code instead of the default. Drafts are only
-// shared once history has replayed.
+renderShared(codeSync.state)
 codeSync.ready.then(() => {
     const { running } = codeSync.state
-    const target = running
-    if (target && mirror.code === DEFAULT_CODE && target.code !== mirror.code) {
-        setCodeSilently(target.code)
-        baseCode = running?.code ?? baseCode
+    if (
+        running &&
+        editor.value === DEFAULT_CODE &&
+        running.code !== editor.value
+    ) {
+        editor.value = running.code
+        baseCode = running.code
     }
-    renderEditorState()
+    updateEditorState()
     setInterval(shareDraft, 300)
 })

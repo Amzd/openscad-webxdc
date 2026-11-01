@@ -7,24 +7,21 @@
             content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
         />
         <script src="webxdc.js"></script>
-        <title>Strudel</title>
+        <title>OpenSCAD</title>
         <style>
             :root {
-                --background: rgba(34, 34, 34, 0.7);
+                --background: rgba(34, 34, 34, 0.94);
                 --foreground: #fff;
-                --toolbar-bg: rgba(30, 30, 30, 0.92);
-                --toolbar-border: #444;
-                --btn-hover: #3a3a3a;
-                --btn-active: #4a9;
-                --error-bg: rgba(180, 30, 30, 0.9);
+                --toolbar-bg: rgba(30, 30, 30, 0.96);
                 --panel-bg: #1a1a1a;
                 --panel-border: #444;
+                --btn-hover: #3a3a3a;
+                --accent: #61b4d7;
             }
 
             *,
             *::before,
             *::after {
-                --background: rgba(34, 34, 34, 0.7);
                 box-sizing: border-box;
             }
 
@@ -40,20 +37,20 @@
                 overflow: hidden;
             }
 
-            /* Dark fallback shown before the draw canvas renders */
             html {
                 background: var(--background);
             }
 
             #workspace {
                 position: fixed;
-                inset: 50px 0 0 0;
+                inset: 50px 0 0;
                 padding: 0 6px 6px;
                 display: grid;
                 gap: 6px;
                 grid-template-columns: minmax(0, 1fr);
                 grid-template-rows: minmax(0, 1.2fr) minmax(0, 0.92fr);
             }
+
             .panel {
                 min-width: 0;
                 min-height: 0;
@@ -64,6 +61,7 @@
                 border-radius: 8px;
                 background: var(--panel-bg);
             }
+
             .panel-heading {
                 min-height: 28px;
                 padding: 4px 8px;
@@ -75,9 +73,11 @@
                 background: var(--toolbar-bg);
                 font-size: 12px;
             }
+
             .panel-title {
                 font-weight: 700;
             }
+
             .small-meta {
                 color: #888;
                 font-size: 11px;
@@ -85,6 +85,7 @@
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
+
             .state-pill {
                 padding: 1px 8px;
                 border-radius: 999px;
@@ -92,29 +93,27 @@
                 color: #4db870;
                 background: rgba(77, 184, 112, 0.15);
             }
+
             .state-pill.draft {
                 color: #e5a33d;
                 background: rgba(229, 163, 61, 0.15);
             }
-            /* Editor panel stays see-through so .pianoroll() shows behind it */
-            #editor-panel {
-                background: transparent;
-            }
-            #editor-root {
-                position: relative;
+
+            #editor {
+                width: 100%;
+                height: 100%;
                 min-height: 0;
+                resize: none;
+                padding: 12px;
+                border: 0;
+                outline: 0;
+                color: #eee;
+                background: transparent;
+                font: 14px/1.5 monospace;
+                tab-size: 4;
                 overflow: auto;
-                background-color: var(
-                    --background
-                ) !important; /* override default bg to make it transparent to show .pianoroll() */
             }
-            #workspace.solo {
-                grid-template-columns: minmax(0, 1fr);
-                grid-template-rows: minmax(0, 1fr);
-            }
-            #workspace.solo .shared-views {
-                display: none;
-            }
+
             .shared-views {
                 min-width: 0;
                 min-height: 0;
@@ -122,15 +121,15 @@
                 grid-template-rows: auto minmax(0, 1fr);
                 gap: 6px;
             }
+
             .shared-views > .panel {
                 display: none;
             }
+
             .shared-views > .panel.mobile-active {
                 display: grid;
             }
-            .shared-views > #running-panel {
-                display: none;
-            }
+
             .mobile-shared-tabs {
                 display: flex;
                 border: 1px solid var(--panel-border);
@@ -140,6 +139,7 @@
                 overflow-y: hidden;
                 background: var(--toolbar-bg);
             }
+
             .tab {
                 padding: 5px 10px;
                 border: 0;
@@ -149,21 +149,25 @@
                 font: 600 12px monospace;
                 cursor: pointer;
             }
+
             .tab.active {
-                color: #4db870;
-                border-bottom-color: #4db870;
+                color: var(--accent);
+                border-bottom-color: var(--accent);
             }
+
             .panel-content {
                 min-height: 0;
-                padding: 0;
+                padding: 8px;
                 overflow: auto;
             }
+
             #peers-panel {
                 grid-template-rows: minmax(0, 1fr);
                 border: 0;
                 border-radius: 0;
                 background: transparent;
             }
+
             #peers-content.peer-grid {
                 display: grid;
                 grid-template-columns: repeat(
@@ -173,24 +177,29 @@
                 align-content: start;
                 gap: 8px;
             }
+
             #peers-content.peer-tabs-mode .peer-heading {
                 display: none;
             }
+
             .mobile-shared-tabs .tab {
                 flex: 0 0 auto;
             }
+
             .mobile-shared-tabs .tab[data-peer] {
                 max-width: 180px;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
+
             .empty-state {
                 padding: 6px;
                 color: #888;
                 font-size: 12px;
                 line-height: 1.4;
             }
+
             .peer-card {
                 display: grid;
                 grid-template-rows: auto minmax(0, 1fr);
@@ -200,6 +209,7 @@
                 border-radius: 8px;
                 background: var(--panel-bg);
             }
+
             .peer-heading {
                 display: flex;
                 align-items: center;
@@ -209,97 +219,106 @@
                 background: var(--toolbar-bg);
                 font-size: 11px;
             }
+
             .peer-heading strong {
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
+
             .viewer {
-                font-size: 13px;
-                background: transparent !important;
+                margin: 0;
+                padding: 8px;
+                color: #ddd;
+                font: 12px/1.5 monospace;
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
             }
-            .viewer .cm-scroller {
-                position: relative;
-                max-height: 40vh;
+
+            .viewer-line {
+                display: inline;
             }
-            #running-content .viewer .cm-scroller {
-                max-height: none;
-            }
-            .viewer .cm-cursorLayer,
-            .viewer .cm-activeLine,
-            .viewer .cm-activeLineGutter {
-                display: none;
-            }
-            .viewer-overlay {
-                position: absolute;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 0;
-                pointer-events: none;
-            }
-            .viewer-changed-line {
-                position: absolute;
-                left: 0;
-                right: 0;
+
+            .viewer-line.changed {
                 background: rgba(229, 163, 61, 0.18);
             }
+
             .viewer-cursor {
-                position: absolute;
-                width: 2px;
-                background: #4db870;
+                display: inline-block;
+                height: 1em;
+                border-left: 2px solid #4db870;
+                vertical-align: text-bottom;
             }
+
+            .render-summary p {
+                margin: 0 0 8px;
+                color: #4db870;
+                font-size: 12px;
+            }
+
+            .render-source,
+            .render-logs {
+                margin: 0 0 8px;
+                color: #ddd;
+                font: 12px/1.5 monospace;
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+            }
+
+            .render-logs {
+                color: #999;
+            }
+
             @media (min-width: 560px) and (min-aspect-ratio: 6/5) {
                 #workspace {
                     grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-                    grid-template-rows: minmax(0, 1fr) minmax(0, 0.72fr);
+                    grid-template-rows: minmax(0, 1fr);
                 }
+
                 .shared-views {
                     display: contents;
                 }
+
                 .mobile-shared-tabs {
                     display: none;
                 }
+
                 #workspace.peer-tabs-mode {
                     grid-template-rows:
                         minmax(0, 1fr) minmax(0, 0.72fr)
                         auto;
                 }
+
                 #workspace.peer-tabs-mode .mobile-shared-tabs {
                     display: flex;
                     grid-column: 1 / -1;
                     grid-row: 3;
                 }
+
                 .shared-views > .panel {
                     display: grid;
                 }
-                .shared-views > #running-panel {
-                    display: grid;
-                }
-                #editor-panel {
-                    grid-column: 1;
-                    grid-row: 1;
-                }
+
                 #running-panel {
                     grid-column: 2;
                     grid-row: 1;
                 }
+
                 #peers-panel {
+                    display: none;
                     grid-column: 1 / -1;
                     grid-row: 2;
                 }
-            }
-            #editor-root .cm-editor {
-                height: 100%;
-                background: transparent;
+
+                #workspace.has-peers {
+                    grid-template-rows: minmax(0, 1fr) minmax(0, 0.72fr);
+                }
+
+                #workspace.has-peers #peers-panel {
+                    display: grid;
+                }
             }
 
-            #editor-root .cm-scroller {
-                overflow: auto;
-                padding-bottom: 8px;
-            }
-
-            /* Toolbar */
             #toolbar {
                 position: fixed;
                 top: 6px;
@@ -308,7 +327,7 @@
                 height: 38px;
                 display: flex;
                 align-items: center;
-                gap: 2px;
+                gap: 6px;
                 padding: 0 8px;
                 background: var(--toolbar-bg);
                 border: 1px solid var(--panel-border);
@@ -317,44 +336,29 @@
             }
 
             #toolbar button {
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                width: 38px;
-                height: 34px;
-                padding: 0;
+                min-height: 30px;
+                padding: 0 10px;
                 background: transparent;
                 border: 1px solid transparent;
                 border-radius: 6px;
                 color: var(--foreground);
+                font: 12px monospace;
                 cursor: pointer;
-                transition:
-                    background 0.15s,
-                    border-color 0.15s,
-                    color 0.15s;
             }
 
             #toolbar button:hover {
                 background: var(--btn-hover);
-                border-color: var(--toolbar-border);
-            }
-
-            #toolbar button:active {
-                background: #555;
+                border-color: var(--panel-border);
             }
 
             #toolbar button:disabled {
-                opacity: 0.25;
+                opacity: 0.35;
                 cursor: default;
             }
 
-            #toolbar button:disabled:hover {
-                background: transparent;
-                border-color: transparent;
-            }
-
-            #play-btn.playing {
-                color: #4db870;
+            #toolbar button.primary {
+                color: var(--accent);
+                font-weight: 700;
             }
 
             #toolbar .spacer {
@@ -364,8 +368,7 @@
             #toolbar .status {
                 font-size: 12px;
                 color: #888;
-                margin-right: 6px;
-                max-width: 200px;
+                max-width: 45%;
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
@@ -375,86 +378,6 @@
                 color: #e55;
             }
 
-            /* Settings panel (slides down from toolbar) */
-            #settings-panel {
-                position: fixed;
-                top: 50px;
-                right: 6px;
-                width: 280px;
-                max-height: calc(100vh - 50px);
-                overflow-y: auto;
-                background: var(--panel-bg);
-                border: 1px solid var(--panel-border);
-                border-radius: 8px;
-                padding: 12px 16px;
-                z-index: 99;
-                display: none;
-                flex-direction: column;
-                gap: 10px;
-            }
-
-            #settings-panel.open {
-                display: flex;
-            }
-
-            #settings-panel .attribution {
-                margin-top: 12px;
-                font-size: 11px;
-                color: #666;
-                text-align: center;
-            }
-
-            #settings-panel .attribution a {
-                color: #888;
-                text-decoration: none;
-            }
-
-            #settings-panel .attribution a:hover {
-                color: #aaa;
-                text-decoration: underline;
-            }
-
-            #settings-panel h3 {
-                margin: 0 0 4px;
-                font-size: 13px;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                color: #aaa;
-            }
-
-            .setting-row {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                font-size: 14px;
-                gap: 8px;
-            }
-
-            .setting-row label {
-                flex: 1;
-                cursor: pointer;
-            }
-
-            .setting-row input[type='range'] {
-                width: 100px;
-            }
-
-            .setting-row input[type='checkbox'] {
-                cursor: pointer;
-                width: 16px;
-                height: 16px;
-            }
-
-            .setting-row select {
-                background: #333;
-                color: var(--foreground);
-                border: 1px solid var(--toolbar-border);
-                border-radius: 3px;
-                padding: 2px 4px;
-                font-size: 13px;
-            }
-
-            /* Shared-code notification */
             #shared-notice {
                 position: fixed;
                 top: 56px;
@@ -479,169 +402,54 @@
         <main id="workspace">
             <section id="editor-panel" class="panel">
                 <div class="panel-heading">
-                    <span class="panel-title">Your editor</span>
+                    <span class="panel-title">OpenSCAD code</span>
                     <span id="editor-state" class="state-pill"
-                        >Not run yet</span
+                        >Not rendered yet</span
                     >
                 </div>
-                <div id="editor-root"></div>
+                <textarea
+                    id="editor"
+                    aria-label="OpenSCAD source code"
+                    spellcheck="false"
+                    autocapitalize="off"
+                    autocomplete="off"
+                ></textarea>
             </section>
-            <div class="shared-views">
-                <div class="mobile-shared-tabs" role="tablist"></div>
-                <section id="running-panel" class="panel">
+            <div id="shared-views" class="shared-views">
+                <div
+                    id="mobile-shared-tabs"
+                    class="mobile-shared-tabs"
+                    role="tablist"
+                ></div>
+                <section id="running-panel" class="panel mobile-active">
                     <div class="panel-heading">
-                        <span class="panel-title">Running</span>
+                        <span class="panel-title">Rendered STL</span>
                         <span id="running-meta" class="small-meta"></span>
                     </div>
                     <div id="running-content" class="panel-content"></div>
                 </section>
-                <section id="peers-panel" class="panel mobile-active">
+                <section id="peers-panel" class="panel">
                     <div id="peers-content" class="panel-content"></div>
                 </section>
             </div>
         </main>
 
         <div id="toolbar">
-            <button id="play-btn" title="Play / Stop (Ctrl+Enter)">
-                <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <polygon
-                        id="play-icon"
-                        points="6,3 20,12 6,21"
-                        fill="currentColor"
-                        stroke="currentColor"
-                    />
-                    <rect
-                        id="stop-icon"
-                        x="4"
-                        y="4"
-                        width="16"
-                        height="16"
-                        rx="2"
-                        fill="currentColor"
-                        stroke="currentColor"
-                        style="display: none"
-                    />
-                </svg>
+            <button id="render-btn" class="primary" title="Render (Ctrl+Enter)">
+                Render
             </button>
             <button
-                id="update-btn"
-                title="Update (apply editor changes)"
+                id="download-btn"
+                title="Download the rendered STL"
                 disabled
             >
-                <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <path
-                        d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
-                    />
-                    <polyline points="17 21 17 13 7 13 7 21" />
-                    <polyline points="7 3 7 8 15 8" />
-                </svg>
+                Download STL
             </button>
             <div class="spacer"></div>
             <span id="status-text" class="status"></span>
-            <button id="settings-btn" title="Settings">
-                <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    xmlns="http://www.w3.org/2000/svg"
-                >
-                    <circle cx="12" cy="12" r="3" />
-                    <path
-                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-                    />
-                </svg>
-            </button>
         </div>
 
-        <div id="settings-panel">
-            <h3>Settings</h3>
-            <div class="setting-row">
-                <label for="font-size-input">Font size</label>
-                <input
-                    type="range"
-                    id="font-size-input"
-                    min="10"
-                    max="32"
-                    step="1"
-                    value="18"
-                />
-                <span id="font-size-label">18</span>
-            </div>
-            <div class="setting-row">
-                <label for="font-family-input">Font</label>
-                <select id="font-family-input">
-                    <option value="monospace">monospace</option>
-                    <option value="'Courier New', monospace">
-                        Courier New
-                    </option>
-                    <option value="'JetBrains Mono', monospace">
-                        JetBrains Mono
-                    </option>
-                    <option value="'Fira Code', monospace">Fira Code</option>
-                </select>
-            </div>
-            <div class="setting-row">
-                <label for="line-numbers-input">Line numbers</label>
-                <input type="checkbox" id="line-numbers-input" checked />
-            </div>
-            <div class="setting-row">
-                <label for="line-wrap-input">Line wrapping</label>
-                <input type="checkbox" id="line-wrap-input" />
-            </div>
-            <div class="setting-row">
-                <label for="autocomplete-input">Autocomplete</label>
-                <input type="checkbox" id="autocomplete-input" />
-            </div>
-            <div class="setting-row">
-                <label for="bracket-matching-input">Bracket matching</label>
-                <input type="checkbox" id="bracket-matching-input" />
-            </div>
-            <div class="setting-row">
-                <label for="flash-input">Flash on eval</label>
-                <input type="checkbox" id="flash-input" checked />
-            </div>
-            <div class="setting-row">
-                <label for="pattern-highlight-input"
-                    >Pattern highlighting</label
-                >
-                <input type="checkbox" id="pattern-highlight-input" checked />
-            </div>
-            <div class="setting-row">
-                <label for="tooltip-enabled-input">Tooltips (Ctrl+hover)</label>
-                <input type="checkbox" id="tooltip-enabled-input" />
-            </div>
-            <p class="attribution">
-                Powered by
-                <a href="https://strudel.cc" target="_blank">strudel.cc</a>
-            </p>
-        </div>
-
-        <div id="shared-notice">Pattern received — press ▶ to play</div>
+        <div id="shared-notice">Code received — render to create your STL</div>
 
         <script type="module" src="src/index.js"></script>
     </body>

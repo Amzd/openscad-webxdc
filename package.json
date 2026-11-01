@@ -1,20 +1,20 @@
 {
     "private": true,
-    "name": "strudel-webxdc",
+    "name": "openscad-webxdc",
     "version": "1.0.0",
-    "description": "Plain webxdc template",
+    "description": "OpenSCAD WebAssembly editor for webxdc",
     "license": "MIT",
     "keywords": [
         "webxdc"
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/Amzd/music-webxdc.git"
+        "url": "https://github.com/Amzd/openscad-webxdc.git"
     },
     "bugs": {
-        "url": "https://github.com/Amzd/music-webxdc/issues"
+        "url": "https://github.com/Amzd/openscad-webxdc/issues"
     },
-    "homepage": "https://github.com/Amzd/music-webxdc",
+    "homepage": "https://github.com/Amzd/openscad-webxdc",
     "type": "module",
     "packageManager": "pnpm@10.14.0",
     "scripts": {
@@ -56,16 +56,5 @@
         "overrides": {
             "@vitejs/plugin-basic-ssl": "2.0.0"
         }
-    },
-    "dependencies": {
-        "@strudel/codemirror": "^1.3.0",
-        "@strudel/core": "^1.2.6",
-        "@strudel/draw": "^1.2.6",
-        "@strudel/mini": "^1.2.6",
-        "@strudel/repl": "^1.3.0",
-        "@strudel/soundfonts": "^1.3.0",
-        "@strudel/tonal": "^1.2.6",
-        "@strudel/transpiler": "^1.2.6",
-        "@strudel/webaudio": "^1.3.0"
     }
 }
