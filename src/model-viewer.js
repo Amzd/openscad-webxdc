@@ -25,6 +25,8 @@ export function createModelViewer() {
     const scene = new Scene()
     scene.background = null
     const camera = new PerspectiveCamera(45, 1, 0.01, 10000)
+    // OpenSCAD is Z-up; set before OrbitControls reads camera.up
+    camera.up.set(0, 0, 1)
     const renderer = new WebGLRenderer({ antialias: true, alpha: true })
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2))
     renderer.domElement.setAttribute('aria-label', 'Rendered 3D model')
@@ -35,10 +37,10 @@ export function createModelViewer() {
     controls.addEventListener('change', render)
     scene.add(new AmbientLight(0xffffff, 1.8))
     const keyLight = new DirectionalLight(0xffffff, 2.4)
-    keyLight.position.set(1, 2, 3)
+    keyLight.position.set(1, -3, 2)
     scene.add(keyLight)
     const fillLight = new DirectionalLight(0xffffff, 1.2)
-    fillLight.position.set(-2, -1, -2)
+    fillLight.position.set(-2, 2, -1)
     scene.add(fillLight)
 
     /** @type {Mesh | null} */
@@ -97,7 +99,7 @@ export function createModelViewer() {
             const distance = Math.max(largestDimension * 1.8, 1)
             camera.near = Math.max(largestDimension / 1000, 0.01)
             camera.far = Math.max(largestDimension * 100, 100)
-            camera.position.set(distance, distance, distance)
+            camera.position.set(distance, -distance, distance)
             camera.lookAt(0, 0, 0)
             controls.target.set(0, 0, 0)
             controls.update()
