@@ -250,10 +250,18 @@
                 vertical-align: text-bottom;
             }
 
-            .render-summary p {
+            .status {
                 margin: 0 0 8px;
-                color: #4db870;
+                color: #888;
                 font-size: 12px;
+            }
+
+            .status:empty {
+                display: none;
+            }
+
+            .status.error {
+                color: #e55;
             }
 
             .model-preview-container {
@@ -427,19 +435,6 @@
                 flex: 1;
             }
 
-            #toolbar .status {
-                font-size: 12px;
-                color: #888;
-                max-width: 45%;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            }
-
-            #toolbar .status.error {
-                color: #e55;
-            }
-
             #shared-notice {
                 position: fixed;
                 top: 56px;
@@ -488,7 +483,10 @@
                         <span class="panel-title">Rendered STL</span>
                         <span id="running-meta" class="small-meta"></span>
                     </div>
-                    <div id="running-content" class="panel-content"></div>
+                    <div class="panel-content">
+                        <p id="status-text" class="status"></p>
+                        <div id="running-content"></div>
+                    </div>
                 </section>
                 <section id="peers-panel" class="panel">
                     <div id="peers-content" class="panel-content"></div>
@@ -506,7 +504,6 @@
                 title="Edit document name"
             />
             <div class="spacer"></div>
-            <span id="status-text" class="status"></span>
             <button id="render-btn" class="primary" title="Render (Ctrl+Enter)">
                 Render
             </button>
