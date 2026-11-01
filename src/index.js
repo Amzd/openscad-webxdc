@@ -87,11 +87,8 @@ let latestRunning = null
 let baseCode = DEFAULT_CODE
 /** @type {RenderedModel | null} */
 let lastRender = null
-/** @type {Promise<WasmInstance> | undefined} */
-let wasmInstancePromise
 /** @type {string[]} */
 let runtimeOutput = []
-let hasOutputFile = false
 /** @type {string[]} */
 let orderedPeerIds = []
 /** @type {string | null} */
@@ -184,24 +181,35 @@ function renderOutput() {
     runningContent.replaceChildren(summary)
 }
 
+// The Emscripten runtime keeps state in globals (e.g. calledRun), so a second
+// load in the same window never initializes. Each render gets its own iframe.
 async function getWasmInstance() {
-    if (!wasmInstancePromise) {
-        const runtimeUrl = new URL('openscad/openscad.js', document.baseURI)
-            .href
-        wasmInstancePromise = import(/* @vite-ignore */ runtimeUrl)
-            .then(({ default: OpenSCAD }) =>
-                OpenSCAD({
-                    noInitialRun: true,
-                    print: captureOutput,
-                    printErr: captureOutput,
-                })
-            )
-            .catch((error) => {
-                wasmInstancePromise = undefined
-                throw error
-            })
+    const frame = document.createElement('iframe')
+    frame.hidden = true
+    const loaded = new Promise((resolve, reject) => {
+        frame.addEventListener('load', resolve, { once: true })
+        frame.addEventListener(
+            'error',
+            () => reject(new Error('Failed to load OpenSCAD runtime.')),
+            { once: true }
+        )
+    })
+    frame.src = new URL('openscad/frame.html', document.baseURI).href
+    document.body.append(frame)
+    try {
+        await loaded
+        const create = frame.contentWindow?.createOpenSCAD
+        if (!create) throw new Error('Failed to load OpenSCAD runtime.')
+        const instance = await create({
+            noInitialRun: true,
+            print: captureOutput,
+            printErr: captureOutput,
+        })
+        return { instance, dispose: () => frame.remove() }
+    } catch (error) {
+        frame.remove()
+        throw error
     }
-    return wasmInstancePromise
 }
 
 async function renderCode() {
@@ -210,14 +218,12 @@ async function renderCode() {
     setStatus('Loading OpenSCAD…')
     runtimeOutput = []
 
+    let runtime
     try {
-        const instance = await getWasmInstance()
+        runtime = await getWasmInstance()
+        const { instance } = runtime
         const code = editor.value
         instance.FS.writeFile('/input.scad', code)
-        if (hasOutputFile) {
-            instance.FS.unlink('/model.stl')
-            hasOutputFile = false
-        }
 
         setStatus('Rendering STL…')
         const exitCode = instance.callMain(['/input.scad', '-o', '/model.stl'])
@@ -225,11 +231,11 @@ async function renderCode() {
             throw new Error(`OpenSCAD exited with code ${exitCode}`)
         }
 
-        const output = instance.FS.readFile('/model.stl')
-        if (!(output instanceof Uint8Array) || output.byteLength === 0) {
+        const rendered = instance.FS.readFile('/model.stl')
+        const output = new Uint8Array(rendered)
+        if (output.byteLength === 0) {
             throw new Error('OpenSCAD did not produce an STL file')
         }
-        hasOutputFile = true
         lastRender = { code, output, logs: relevantRuntimeOutput() }
         renderOutput()
         codeSync.publish(code, editor.selectionStart)
@@ -248,6 +254,7 @@ async function renderCode() {
         )
         console.error('OpenSCAD render failed', error)
     } finally {
+        runtime?.dispose()
         renderBtn.disabled = false
     }
 }
