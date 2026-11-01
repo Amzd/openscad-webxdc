@@ -5,6 +5,7 @@ import globals from 'globals'
 import pluginTs from 'typescript-eslint'
 
 export default pluginTs.config(
+    { ignores: ['public/openscad/**'] },
     includeIgnoreFile(fileURLToPath(new URL('.gitignore', import.meta.url))),
     includeIgnoreFile(
         fileURLToPath(new URL('.git/info/exclude', import.meta.url))

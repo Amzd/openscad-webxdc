@@ -1,8 +1,19 @@
-# Strudel
+# OpenSCAD
 
-This [webxdc](https://webxdc.org/) wraps [strudel.cc](https://strudel.cc/) and syncs the code between peers. The fastest way to use this is to send the app.xdc asset from releases into a chat in [Delta Chat](https://delta.chat).
+This [webxdc](https://webxdc.org/) runs [OpenSCAD](https://openscad.org/) in
+WebAssembly and syncs OpenSCAD source code between chat participants. Render
+your code to create and download an STL file. The app works offline after it
+has been opened.
 
-# Getting started
+The WebAssembly runtime is bundled from
+[openscad/openscad-wasm](https://github.com/openscad/openscad-wasm), release
+[`2022.03.20`](https://github.com/openscad/openscad-wasm/releases/tag/2022.03.20).
+The bundled WASM runtime is licensed under GPL-2.0; see `public/openscad/COPYING`.
+
+The fastest way to use this is to send the app.xdc asset from releases into a
+chat in [Delta Chat](https://delta.chat).
+
+## Getting started
 
 ```sh
 # Install dependencies
@@ -14,13 +25,3 @@ pnpm run emulator
 # Build the application for distribution
 pnpm run build
 ```
-
-Do not use this with a tool like https://github.com/kajuwise/spotify-dl-on-steroids because listening to the music you pay for might be illegal.
-
-# TODO
-
-- attach sounds that would be synced to peers automatically
-
-# LLM disclaimer
-
-I've used an LLM to generate much of the code in this repo. The justification for this is that webxdc's are sandboxed and cannot access the internet or any of the systems they run on which means it is basically impossible to create vulnerabilities. This makes webxdcs a nice playground for LLMs where they can't do any harm while quickly delivering new features to end users. I do not suggest using LLMs in the manner I did in this repo for non-sandboxed applications.
