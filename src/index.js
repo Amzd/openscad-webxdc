@@ -74,7 +74,10 @@ const documentNameInput = /** @type {HTMLInputElement} */ (
     requireElement('document-name')
 )
 const statusText = requireElement('status-text')
-const runningContent = requireElement('running-content')
+const renderStatus = /** @type {HTMLParagraphElement} */ (
+    requireElement('render-status')
+)
+const runningOutput = requireElement('running-output')
 const runningMeta = requireElement('running-meta')
 const peersContent = requireElement('peers-content')
 const tabsBar = requireElement('mobile-shared-tabs')
@@ -125,8 +128,10 @@ function updateEditorState() {
 
 /** @param {string} message @param {boolean} [isError] */
 function setStatus(message, isError = false) {
-    statusText.textContent = message
+    statusText.textContent = isError ? message : ''
     statusText.classList.toggle('error', isError)
+    renderStatus.textContent = isError ? '' : message
+    renderStatus.hidden = !renderStatus.textContent
 }
 
 /** @param {string} text */
@@ -163,7 +168,7 @@ function renderOutput() {
         modelViewer?.destroy()
         modelViewer = undefined
         downloadBtn.disabled = true
-        runningContent.replaceChildren(
+        runningOutput.replaceChildren(
             emptyState('Render your OpenSCAD code to create an STL model.')
         )
         return
@@ -172,11 +177,9 @@ function renderOutput() {
     downloadBtn.disabled = false
     const summary = document.createElement('div')
     summary.className = 'render-summary'
-    const message = document.createElement('p')
-    message.textContent = 'Render complete'
     const preview = document.createElement('div')
     preview.className = 'model-preview-container'
-    summary.append(message, preview)
+    summary.append(preview)
 
     if (!modelViewer) {
         try {
@@ -226,7 +229,7 @@ function renderOutput() {
         logsDetails.append(logsSummary, logs)
         summary.append(logsDetails)
     }
-    runningContent.replaceChildren(summary)
+    runningOutput.replaceChildren(summary)
 }
 
 // The Emscripten runtime keeps state in globals (e.g. calledRun), so a second
@@ -287,7 +290,7 @@ async function renderCode() {
         lastRender = { code, output, logs: relevantRuntimeOutput() }
         renderOutput()
         codeSync.publish(code, editor.selectionStart)
-        setStatus('')
+        setStatus('Render complete')
         updateEditorState()
     } catch (error) {
         const diagnostics = relevantRuntimeOutput().slice(-3).join(' ')
@@ -319,7 +322,7 @@ downloadBtn.addEventListener('click', async () => {
         })
     } catch (error) {
         console.error('Unable to export STL', error)
-        setStatus('Export failed')
+        setStatus('Export failed', true)
     }
 })
 documentNameInput.addEventListener('keydown', (event) => {
@@ -443,7 +446,7 @@ function renderShared({ running, peers }) {
         runningMeta.textContent = ''
         modelViewer?.destroy()
         modelViewer = undefined
-        runningContent.replaceChildren(
+        runningOutput.replaceChildren(
             emptyState('Render your OpenSCAD code to create an STL model.')
         )
     }

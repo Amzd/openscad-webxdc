@@ -250,9 +250,9 @@
                 vertical-align: text-bottom;
             }
 
-            .render-summary p {
+            #render-status {
                 margin: 0 0 8px;
-                color: #4db870;
+                color: #888;
                 font-size: 12px;
             }
 
@@ -488,7 +488,10 @@
                         <span class="panel-title">Rendered STL</span>
                         <span id="running-meta" class="small-meta"></span>
                     </div>
-                    <div id="running-content" class="panel-content"></div>
+                    <div id="running-content" class="panel-content">
+                        <p id="render-status" hidden></p>
+                        <div id="running-output"></div>
+                    </div>
                 </section>
                 <section id="peers-panel" class="panel">
                     <div id="peers-content" class="panel-content"></div>
