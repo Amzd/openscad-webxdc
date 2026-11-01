@@ -172,11 +172,9 @@ function renderOutput() {
     downloadBtn.disabled = false
     const summary = document.createElement('div')
     summary.className = 'render-summary'
-    const message = document.createElement('p')
-    message.textContent = `STL ready (${(lastRender.output.byteLength / 1024).toFixed(1)} KB).`
     const preview = document.createElement('div')
     preview.className = 'model-preview-container'
-    summary.append(message, preview)
+    summary.append(preview)
 
     if (!modelViewer) {
         try {
