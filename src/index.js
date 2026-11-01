@@ -87,11 +87,10 @@ let latestRunning = null
 let baseCode = DEFAULT_CODE
 /** @type {RenderedModel | null} */
 let lastRender = null
-/** @type {Promise<WasmInstance> | undefined} */
-let wasmInstancePromise
+/** @type {Promise<(options: object) => Promise<WasmInstance>> | undefined} */
+let wasmFactoryPromise
 /** @type {string[]} */
 let runtimeOutput = []
-let hasOutputFile = false
 /** @type {string[]} */
 let orderedPeerIds = []
 /** @type {string | null} */
@@ -184,24 +183,28 @@ function renderOutput() {
     runningContent.replaceChildren(summary)
 }
 
-async function getWasmInstance() {
-    if (!wasmInstancePromise) {
+async function getWasmFactory() {
+    if (!wasmFactoryPromise) {
         const runtimeUrl = new URL('openscad/openscad.js', document.baseURI)
             .href
-        wasmInstancePromise = import(/* @vite-ignore */ runtimeUrl)
-            .then(({ default: OpenSCAD }) =>
-                OpenSCAD({
-                    noInitialRun: true,
-                    print: captureOutput,
-                    printErr: captureOutput,
-                })
-            )
+        wasmFactoryPromise = import(/* @vite-ignore */ runtimeUrl)
+            .then(({ default: OpenSCAD }) => OpenSCAD)
             .catch((error) => {
-                wasmInstancePromise = undefined
+                wasmFactoryPromise = undefined
                 throw error
             })
     }
-    return wasmInstancePromise
+    return wasmFactoryPromise
+}
+
+// OpenSCAD's main() can't be safely re-run, so each render gets a fresh instance
+async function getWasmInstance() {
+    const OpenSCAD = await getWasmFactory()
+    return OpenSCAD({
+        noInitialRun: true,
+        print: captureOutput,
+        printErr: captureOutput,
+    })
 }
 
 async function renderCode() {
@@ -214,10 +217,6 @@ async function renderCode() {
         const instance = await getWasmInstance()
         const code = editor.value
         instance.FS.writeFile('/input.scad', code)
-        if (hasOutputFile) {
-            instance.FS.unlink('/model.stl')
-            hasOutputFile = false
-        }
 
         setStatus('Rendering STL…')
         const exitCode = instance.callMain(['/input.scad', '-o', '/model.stl'])
@@ -229,7 +228,6 @@ async function renderCode() {
         if (!(output instanceof Uint8Array) || output.byteLength === 0) {
             throw new Error('OpenSCAD did not produce an STL file')
         }
-        hasOutputFile = true
         lastRender = { code, output, logs: relevantRuntimeOutput() }
         renderOutput()
         codeSync.publish(code, editor.selectionStart)
