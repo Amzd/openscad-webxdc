@@ -256,9 +256,46 @@
                 font-size: 12px;
             }
 
+            .model-preview-container {
+                height: min(42vh, 360px);
+                min-height: 180px;
+                margin-bottom: 10px;
+                overflow: hidden;
+                border: 1px solid var(--panel-border);
+                border-radius: 6px;
+                background: radial-gradient(circle at center, #343a40, #17191b);
+            }
+
+            .model-preview {
+                width: 100%;
+                height: 100%;
+                cursor: grab;
+            }
+
+            .model-preview:active {
+                cursor: grabbing;
+            }
+
+            .model-preview canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+
+            .render-details {
+                margin: 0 0 8px;
+                color: #aaa;
+                font-size: 12px;
+            }
+
+            .render-details summary {
+                padding: 6px 0;
+                cursor: pointer;
+            }
+
             .render-source,
             .render-logs {
-                margin: 0 0 8px;
+                margin: 0;
                 color: #ddd;
                 font: 12px/1.5 monospace;
                 white-space: pre-wrap;
@@ -267,6 +304,12 @@
 
             .render-logs {
                 color: #999;
+            }
+
+            .render-summary p.preview-error {
+                margin: 8px 0;
+                color: #e5a33d;
+                font-size: 12px;
             }
 
             @media (min-width: 560px) and (min-aspect-ratio: 6/5) {

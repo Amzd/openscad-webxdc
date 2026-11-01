@@ -1,4 +1,5 @@
 import { mergeEditorText } from './merge.js'
+import { createModelViewer } from './model-viewer.js'
 import { createCodeSync } from './sync.js'
 import { createViewer } from './viewer.js'
 
@@ -78,6 +79,8 @@ const sharedNotice = requireElement('shared-notice')
 const workspace = requireElement('workspace')
 const runningPanel = requireElement('running-panel')
 const peersPanel = requireElement('peers-panel')
+/** @type {ReturnType<typeof createModelViewer> | undefined} */
+let modelViewer
 
 editor.value = DEFAULT_CODE
 
@@ -156,6 +159,8 @@ function downloadBlob(blob, filename) {
 
 function renderOutput() {
     if (!lastRender) {
+        modelViewer?.destroy()
+        modelViewer = undefined
         downloadBtn.disabled = true
         runningContent.replaceChildren(
             emptyState('Render your OpenSCAD code to create an STL model.')
@@ -168,15 +173,57 @@ function renderOutput() {
     summary.className = 'render-summary'
     const message = document.createElement('p')
     message.textContent = `STL ready (${(lastRender.output.byteLength / 1024).toFixed(1)} KB).`
-    const source = document.createElement('pre')
-    source.className = 'render-source'
-    source.textContent = lastRender.code
-    summary.append(message, source)
+    const preview = document.createElement('div')
+    preview.className = 'model-preview-container'
+    summary.append(message, preview)
+
+    if (!modelViewer) {
+        try {
+            modelViewer = createModelViewer()
+        } catch (error) {
+            console.error('Unable to initialize 3D preview', error)
+            const unavailable = document.createElement('p')
+            unavailable.className = 'preview-error'
+            unavailable.textContent =
+                '3D preview is unavailable in this environment. You can still download the STL.'
+            summary.append(unavailable)
+        }
+    }
+    if (modelViewer) {
+        preview.append(modelViewer.dom)
+        try {
+            modelViewer.update(lastRender.output)
+        } catch (error) {
+            console.error('Unable to display rendered STL', error)
+            modelViewer.destroy()
+            modelViewer = undefined
+            const unavailable = document.createElement('p')
+            unavailable.className = 'preview-error'
+            unavailable.textContent =
+                'Unable to display this STL. You can still download the file.'
+            preview.replaceWith(unavailable)
+        }
+    }
+
+    const source = document.createElement('details')
+    source.className = 'render-details'
+    const sourceSummary = document.createElement('summary')
+    sourceSummary.textContent = 'OpenSCAD source'
+    const sourceCode = document.createElement('pre')
+    sourceCode.className = 'render-source'
+    sourceCode.textContent = lastRender.code
+    source.append(sourceSummary, sourceCode)
+    summary.append(source)
     if (lastRender.logs.length) {
+        const logsDetails = document.createElement('details')
+        logsDetails.className = 'render-details'
+        const logsSummary = document.createElement('summary')
+        logsSummary.textContent = 'Render logs'
         const logs = document.createElement('pre')
         logs.className = 'render-logs'
         logs.textContent = lastRender.logs.join('\n')
-        summary.append(logs)
+        logsDetails.append(logsSummary, logs)
+        summary.append(logsDetails)
     }
     runningContent.replaceChildren(summary)
 }
@@ -371,6 +418,8 @@ function renderShared({ running, peers }) {
         renderOutput()
     } else {
         runningMeta.textContent = ''
+        modelViewer?.destroy()
+        modelViewer = undefined
         runningContent.replaceChildren(
             emptyState('Render your OpenSCAD code to create an STL model.')
         )
