@@ -94,8 +94,11 @@ let latestRunning = null
 let baseCode = DEFAULT_CODE
 /** @type {RenderedModel | null} */
 let lastRender = null
+let hasStartedLocalRender = false
 /** @type {string[]} */
 let runtimeOutput = []
+/** @type {string | null} */
+let pendingAutomaticRender = null
 /** @type {string[]} */
 let orderedPeerIds = []
 /** @type {string | null} */
@@ -260,8 +263,12 @@ async function getWasmInstance() {
     }
 }
 
-async function renderCode() {
-    if (renderBtn.disabled) return
+async function renderCode(code = editor.value, publish = true) {
+    if (renderBtn.disabled) {
+        if (!publish) pendingAutomaticRender = code
+        return
+    }
+    if (publish) hasStartedLocalRender = true
     renderBtn.disabled = true
     setStatus('Loading OpenSCAD…')
     runtimeOutput = []
@@ -270,7 +277,6 @@ async function renderCode() {
     try {
         runtime = await getWasmInstance()
         const { instance } = runtime
-        const code = editor.value
         instance.FS.writeFile('/input.scad', code)
 
         setStatus('Rendering STL…')
@@ -286,7 +292,7 @@ async function renderCode() {
         }
         lastRender = { code, output, logs: relevantRuntimeOutput() }
         renderOutput()
-        codeSync.publish(code, editor.selectionStart)
+        if (publish) codeSync.publish(code, editor.selectionStart)
         setStatus('Render complete')
         updateEditorState()
     } catch (error) {
@@ -304,10 +310,15 @@ async function renderCode() {
     } finally {
         runtime?.dispose()
         renderBtn.disabled = false
+        if (pendingAutomaticRender !== null) {
+            const pending = pendingAutomaticRender
+            pendingAutomaticRender = null
+            void renderCode(pending, false)
+        }
     }
 }
 
-renderBtn.addEventListener('click', renderCode)
+renderBtn.addEventListener('click', () => renderCode())
 downloadBtn.addEventListener('click', async () => {
     if (!lastRender) return
     try {
@@ -554,15 +565,23 @@ async function onSharedChange(state) {
         documentNameInput.value = state.documentName
     }
     const { running } = state
+    const newPeerRender =
+        running &&
+        running.type === 'compiled' &&
+        running.from !== window.webxdc.selfAddr &&
+        running.id !== latestRunning?.id
     renderShared(state)
-    if (!running || running.code === baseCode) return
-    const previous = baseCode
-    baseCode = running.code
-    const local = editor.value
-    const merged = mergeEditorText(previous, local, running.code)
-    if (merged !== local) editor.value = merged
-    if (merged !== local) showSharedNotice()
-    updateEditorState()
+    if (running && running.code !== baseCode) {
+        const previous = baseCode
+        baseCode = running.code
+        const local = editor.value
+        const merged = mergeEditorText(previous, local, running.code)
+        if (merged !== local) editor.value = merged
+        if (merged !== local) showSharedNotice()
+        updateEditorState()
+    }
+    if (newPeerRender && running && hasStartedLocalRender)
+        void renderCode(running.code, false)
 }
 
 function cursorPos() {
