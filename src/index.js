@@ -94,6 +94,7 @@ let latestRunning = null
 let baseCode = DEFAULT_CODE
 /** @type {RenderedModel | null} */
 let lastRender = null
+let hasStartedLocalRender = false
 /** @type {string[]} */
 let runtimeOutput = []
 /** @type {string | null} */
@@ -267,6 +268,7 @@ async function renderCode(code = editor.value, publish = true) {
         if (!publish) pendingAutomaticRender = code
         return
     }
+    if (publish) hasStartedLocalRender = true
     renderBtn.disabled = true
     setStatus('Loading OpenSCAD…')
     runtimeOutput = []
@@ -578,7 +580,8 @@ async function onSharedChange(state) {
         if (merged !== local) showSharedNotice()
         updateEditorState()
     }
-    if (newPeerRender && running) void renderCode(running.code, false)
+    if (newPeerRender && running && hasStartedLocalRender)
+        void renderCode(running.code, false)
 }
 
 function cursorPos() {
