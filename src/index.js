@@ -100,6 +100,8 @@ let runtimeOutput = []
 let orderedPeerIds = []
 /** @type {string | null} */
 let selectedPeerFrom = null
+/** @type {'running' | 'peer'} */
+let selectedSharedView = 'running'
 /**
  * @type {Map<
  *     string,
@@ -407,6 +409,7 @@ tabsBar.addEventListener('click', (event) => {
         item.setAttribute('aria-selected', item === tab ? 'true' : 'false')
     }
     const isRunning = tab.dataset.panel === 'running'
+    selectedSharedView = isRunning ? 'running' : 'peer'
     runningPanel.classList.toggle('mobile-active', isRunning)
     peersPanel.classList.toggle('mobile-active', !isRunning)
     if (!isRunning && tab.dataset.peer) {
@@ -451,18 +454,26 @@ function renderShared({ running, peers }) {
     )
     orderedPeerIds = others.map((peer) => peer.from)
     workspace.classList.toggle('has-peers', others.length > 0)
-    selectedPeerFrom =
-        [...others].sort((a, b) => b.ts - a.ts || b.id.localeCompare(a.id))[0]
-            ?.from ?? null
+    if (!others.some((peer) => peer.from === selectedPeerFrom)) {
+        selectedPeerFrom =
+            [...others].sort(
+                (a, b) => b.ts - a.ts || b.id.localeCompare(a.id)
+            )[0]?.from ?? null
+    }
+    if (!selectedPeerFrom) selectedSharedView = 'running'
     tabsBar.replaceChildren()
 
     const runningTab = document.createElement('button')
-    runningTab.className = 'tab active'
+    runningTab.className = 'tab'
+    if (selectedSharedView === 'running') runningTab.classList.add('active')
     runningTab.type = 'button'
     runningTab.setAttribute('role', 'tab')
     runningTab.dataset.panel = 'running'
     runningTab.textContent = 'Output'
-    runningTab.setAttribute('aria-selected', 'true')
+    runningTab.setAttribute(
+        'aria-selected',
+        selectedSharedView === 'running' ? 'true' : 'false'
+    )
     tabsBar.append(runningTab)
 
     if (!others.length) {
@@ -495,7 +506,9 @@ function renderShared({ running, peers }) {
         entry.name.textContent = peer.name || shortAddress(peer.from)
         const peerTab = document.createElement('button')
         peerTab.className = 'tab'
-        if (peer.from === selectedPeerFrom) peerTab.classList.add('active')
+        if (peer.from === selectedPeerFrom && selectedSharedView === 'peer') {
+            peerTab.classList.add('active')
+        }
         peerTab.type = 'button'
         peerTab.setAttribute('role', 'tab')
         peerTab.dataset.panel = 'peer'
@@ -503,7 +516,9 @@ function renderShared({ running, peers }) {
         peerTab.textContent = peer.name || shortAddress(peer.from)
         peerTab.setAttribute(
             'aria-selected',
-            peer.from === selectedPeerFrom ? 'true' : 'false'
+            peer.from === selectedPeerFrom && selectedSharedView === 'peer'
+                ? 'true'
+                : 'false'
         )
         tabsBar.append(peerTab)
         getViewer(`peer:${peer.from}`, entry.body).update(
@@ -514,8 +529,14 @@ function renderShared({ running, peers }) {
     }
 
     if (others.length) {
-        runningPanel.classList.add('mobile-active')
-        peersPanel.classList.remove('mobile-active')
+        runningPanel.classList.toggle(
+            'mobile-active',
+            selectedSharedView === 'running'
+        )
+        peersPanel.classList.toggle(
+            'mobile-active',
+            selectedSharedView === 'peer'
+        )
         updatePeerLayout(others.length)
     } else {
         orderedPeerIds = []
